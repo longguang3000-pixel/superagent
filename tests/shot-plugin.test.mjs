@@ -1,13 +1,44 @@
 /**
- * Offline checks for the dsh-feishu-shot plugin: command parsing, and a real capture through the resident worker.
- * Run with: node --test tests/
+ * Offline checks for the dsh-feishu-shot plugin: the module loads through its Cordis entry point, command parsing, and a
+ * real capture through the resident worker.
+ * Run with: node --test tests/shot-plugin.test.mjs
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { shotCommand, normalizeCommand } from '../plugin/lib/index.js'
+import { apply, name, shotCommand, normalizeCommand } from '../plugin/lib/index.js'
+
+/**
+ * The host imports this module and calls `apply` on a Cordis context; a missing import binding (existsSync once was)
+ * throws a ReferenceError right there and the host silently skips the plugin, so loading is a path worth a test.
+ */
+test('the plugin loads through apply() and starts watching', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'shot-apply-'))
+  const stateDir = join(directory, 'state')
+  mkdirSync(stateDir)
+  const shotsDir = join(stateDir, 'screenshots')
+  let dispose
+  const ctx = {
+    logger: { info() {} },
+    effect(start) { dispose = start() },
+  }
+  assert.equal(name, 'dsh-feishu-shot')
+  // No cli/powershell override on purpose: resolveSettings then probes the default paths, which is the code that calls
+  // existsSync while apply() runs.
+  apply(ctx, { stateDir, shotsDir, intervalMs: 1000 })
+  assert.equal(typeof dispose, 'function', 'apply must register a disposer')
+  assert.ok(existsSync(shotsDir), 'the screenshot directory is created while loading')
+  assert.ok(existsSync(join(stateDir, 'feishu-shot.log')), 'the plugin writes its first log line while loading')
+  await new Promise(resolve => setTimeout(resolve, 400))
+  const log = readFileSync(join(stateDir, 'feishu-shot.log'), 'utf8')
+  assert.match(log, /watching .*orchestrator\.sqlite every 1000 ms/)
+  dispose()
+  assert.ok(existsSync(join(stateDir, 'feishu-shot.log')), 'disposing keeps the log')
+})
 
 test('capture commands match only short requests', () => {
   assert.equal(shotCommand('截图'), 'all')
@@ -32,7 +63,7 @@ test('the resident worker captures the requested monitor', async () => {
   const dir = join(process.env.TEMP ?? '.', 'shot-plugin-test')
   mkdirSync(dir, { recursive: true })
   const worker = spawn(process.env.DSH_SHOT_PWSH ?? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
-    ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', new URL('../plugin/scripts/shot-worker.ps1', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')],
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', fileURLToPath(new URL('../plugin/scripts/shot-worker.ps1', import.meta.url))],
     { stdio: ['pipe', 'pipe', 'pipe'] })
   worker.stdout.setEncoding('utf8')
   const results = []
