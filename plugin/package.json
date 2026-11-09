@@ -1,0 +1,16 @@
+{
+  "name": "dsh-feishu-shot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Feishu screenshot command plugin: say 截图 / 截左屏 / 截右屏 and the image comes back in about a second.",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "scripts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}
